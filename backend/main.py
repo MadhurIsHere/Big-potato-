@@ -878,7 +878,7 @@ def get_db_status():
     return db.db_status()
 
 
-# WebSocket telemetry — streams live node data every 5 seconds
+# WebSocket telemetry — streams live node data every 1 second
 @app.websocket("/ws/telemetry")
 async def telemetry_ws(websocket: WebSocket):
     await websocket.accept()
@@ -886,7 +886,7 @@ async def telemetry_ws(websocket: WebSocket):
         while True:
             nodes = get_nodes()
             await websocket.send_text(json.dumps(nodes))
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass
 
