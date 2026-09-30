@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Form, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -50,6 +50,7 @@ def parse_lora_string(raw: str) -> dict:
 @app.post("/lora-data")
 async def receive_lora_data(
     request: Request,
+    background_tasks: BackgroundTasks,
     data: str   = Form(default=""),
     rssi: int   = Form(default=0),
     snr:  float = Form(default=0.0),
@@ -75,7 +76,7 @@ async def receive_lora_data(
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
 
     ts = datetime.now(timezone.utc).isoformat()
-    await db.insert_reading(node_id, ts, temp, hum, mq135, h2s, ch4, rssi, snr, packet, wlvl, wflow, bat)
+    background_tasks.add_task(db.insert_reading, node_id, ts, temp, hum, mq135, h2s, ch4, rssi, snr, packet, wlvl, wflow, bat)
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Node {node_id} | "
           f"T={temp} H={hum} MQ135={mq135} H2S={h2s} CH4={ch4} WLVL={wlvl} FLOW={wflow} BAT={bat}")
@@ -84,7 +85,7 @@ async def receive_lora_data(
 
 # Also accept JSON POST (for any future use / manual testing)
 @app.post("/api/data")
-async def receive_json_data(request: Request):
+async def receive_json_data(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.body()
         raw = body.decode("utf-8").strip()
@@ -118,7 +119,7 @@ async def receive_json_data(request: Request):
             bat     = float(parsed.get("BAT", 0.0)) if "BAT" in parsed else None
 
         ts = datetime.now(timezone.utc).isoformat()
-        await db.insert_reading(node_id, ts, temp, hum, mq135, h2s, ch4, rssi, snr, packet, wlvl, wflow, bat)
+        background_tasks.add_task(db.insert_reading, node_id, ts, temp, hum, mq135, h2s, ch4, rssi, snr, packet, wlvl, wflow, bat)
         return {"status": "success", "node": node_id}
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
