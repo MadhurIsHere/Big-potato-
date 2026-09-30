@@ -76,6 +76,14 @@ async def receive_lora_data(
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
 
     ts = datetime.now(timezone.utc).isoformat()
+    # Build a raw row dict identical to what DB would return and cache it
+    raw_row = {
+        "node_id": node_id, "timestamp": ts,
+        "temp": temp, "hum": hum, "mq135": mq135,
+        "h2s": h2s, "ch4": ch4, "rssi": rssi, "snr": snr,
+        "packet": packet, "wlvl": wlvl, "wflow": wflow, "battery": bat,
+    }
+    _node_cache[node_id] = raw_row
     background_tasks.add_task(db.insert_reading, node_id, ts, temp, hum, mq135, h2s, ch4, rssi, snr, packet, wlvl, wflow, bat)
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Node {node_id} | "
@@ -186,7 +194,7 @@ def norm_ch4(raw: int, node_id: int) -> float:
     """Map raw ADC to % LEL with per-node baseline calibration."""
     baseline = CH4_BASELINE
     if node_id == 1:
-        baseline = 1875
+        baseline = 1750
     elif node_id == 2:
         baseline = 2000
 
@@ -883,12 +891,18 @@ def get_db_status():
 
 
 # WebSocket telemetry — streams live node data every 1 second
+# Serves from in-memory cache; DB is NOT queried on every tick.
 @app.websocket("/ws/telemetry")
 async def telemetry_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            nodes = get_nodes()
+            if _node_cache:
+                # Build node list from cache (zero DB hit)
+                nodes = [node_to_drain_node(row) for row in _node_cache.values()]
+            else:
+                # Cold start: fall back to DB once until cache is warm
+                nodes = get_nodes()
             await websocket.send_text(json.dumps(nodes))
             await asyncio.sleep(1)
     except WebSocketDisconnect:
