@@ -45,6 +45,13 @@ def parse_lora_string(raw: str) -> dict:
 
 
 # ──────────────────────────────────────────────
+# IN-MEMORY NODE CACHE  (updated on every POST)
+# Avoids hammering PostgreSQL on every WS tick.
+# ──────────────────────────────────────────────
+_node_cache: dict = {}  # node_id → latest raw row dict
+
+
+# ──────────────────────────────────────────────
 # INGEST ENDPOINT  ← ESP32 Master posts here
 # ──────────────────────────────────────────────
 @app.post("/lora-data")
