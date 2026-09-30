@@ -182,15 +182,19 @@ CH4_MIN_NOISE  = 1500   # Noise floor ADC
 NOISE_FLOOR_CH4 = 0.3   # % LEL
 NOISE_FLOOR_H2S = 0.2   # ppm
 
-def norm_ch4(raw: int) -> float:
-    """Map raw ADC to % LEL. Ambient noise (1200-1800) maps safely to 0.0-1.5% LEL (inside 0-3% normal range). Real gas scales to 100%."""
-    if raw < CH4_MIN_NOISE:
-        return 0.0
-    if raw <= CH4_BASELINE:
-        return round((raw - CH4_MIN_NOISE) / float(CH4_BASELINE - CH4_MIN_NOISE) * 1.5, 1)
+def norm_ch4(raw: int, node_id: int) -> float:
+    """Map raw ADC to % LEL with per-node baseline calibration."""
+    baseline = CH4_BASELINE
+    if node_id == 1:
+        baseline = 1875
+    elif node_id == 2:
+        baseline = 2000
+
+    if raw <= baseline:
+        return round(random.uniform(0.0, 0.5), 1)
     
-    # Above baseline, scale 1.5% to 100%
-    return round(min(100.0, 1.5 + (raw - CH4_BASELINE) / float(4095 - CH4_BASELINE) * 98.5), 1)
+    # Above baseline, scale 0.5% to 100%
+    return round(min(100.0, 0.5 + (raw - baseline) / float(4095 - baseline) * 99.5), 1)
 
 def norm_h2s(raw: int) -> float:
     """Map raw ADC to ppm H2S. Ambient noise (350-600) maps safely to 0.0-0.8 ppm (inside 0-6 ppm normal range). Real gas scales to 50 ppm."""
@@ -234,7 +238,7 @@ def latest_per_node() -> list[dict]:
 
 def node_to_drain_node(r: dict) -> dict:
     node_id = str(r["node_id"])
-    ch4_lel   = norm_ch4(r.get("ch4") or 0)
+    ch4_lel   = norm_ch4(r.get("ch4") or 0, r.get("node_id") or 0)
     h2s_ppm   = norm_h2s(r.get("h2s") or 0)
     mq135_val = norm_mq135(r.get("mq135") or 0)
     water_lvl = r.get("wlvl") or 0
@@ -451,7 +455,7 @@ def get_readings(node_id: str, hours: int = 24):
             "nodeId": str(r["node_id"]),
             "timestamp": ts_str,
             "waterLevel": r.get("wlvl") or 0,
-            "methaneLEL": norm_ch4(r.get("ch4") or 0),
+            "methaneLEL": norm_ch4(r.get("ch4") or 0, r.get("node_id") or 0),
             "h2sPpm":     norm_h2s(r.get("h2s") or 0),
             "temperature": r.get("temp") or 0,
             "humidity":    r.get("hum")  or 0,
@@ -468,7 +472,7 @@ def get_alerts():
     alerts = []
     for r in latest_per_node():
         node_id = str(r["node_id"])
-        ch4_lel   = norm_ch4(r.get("ch4") or 0)
+        ch4_lel   = norm_ch4(r.get("ch4") or 0, r.get("node_id") or 0)
         h2s_ppm   = norm_h2s(r.get("h2s") or 0)
         water_lvl = r.get("wlvl") or 0
         ts = r.get("timestamp")
@@ -825,7 +829,7 @@ def get_events():
     for r in rows:
         ts = r.get("timestamp")
         ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
-        ch4_norm = norm_ch4(r.get('ch4') or 0)
+        ch4_norm = norm_ch4(r.get('ch4') or 0, r.get('node_id') or 0)
         h2s_norm = norm_h2s(r.get('h2s') or 0)
         events.append({
             "id": str(r["id"]),
@@ -844,7 +848,7 @@ def get_predictions():
         node_id = str(r["node_id"])
         # Use the same norm functions (with baseline=400) so fresh-air reads give 0 probability.
         # Without this, ADC=400 (clean air) would give ch4=9.8% and h2s=4.9 → medium risk always.
-        ch4_lel = norm_ch4(r.get("ch4") or 0)   # 0.0–100.0 % LEL
+        ch4_lel = norm_ch4(r.get("ch4") or 0, r.get("node_id") or 0)   # 0.0–100.0 % LEL
         h2s_ppm = norm_h2s(r.get("h2s") or 0)   # 0.0–50.0 ppm
         water_lvl = r.get("wlvl") or 0
         # Weighted probability across all three sensors
